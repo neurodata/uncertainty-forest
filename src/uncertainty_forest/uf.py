@@ -106,9 +106,9 @@ class UncertaintyForest:
         n, d  = X_train.shape
         v, d_ = X_eval.shape
         
-        # TO DO: Bake into input validation function.
+        # TO DO: Bake into input validation function?
         if d != d_:
-            raise ValueError("train and test data in different dimensions")
+            raise ValueError("Training and evaluation data must be the same different dimension.")
         
         class_counts = np.zeros((v, model.n_classes_))
         for tree in model:
@@ -145,18 +145,30 @@ class UncertaintyForest:
         
         # Normalize counts.
         self.cond_probability = np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
+
+        # Precompute entropy of y to use for mutual info.
+        self._estimate_entropy(y_train)
+
         return self.cond_probability
 
-    def estimate_cond_entropy(self, X_train, y_train, X_eval):
+    def estimate_cond_entropy(self, X_train = None, y_train = None, X_eval = None):
         
-        model = self._build_forest(X_train, y_train)
-        p = self.estimate_cond_probability(X_train, y_train, X_eval, model)
+        # User can supply training or evaluation data,
+        # in which case rewrite stored conditional probability.
+        if X_train and y_train and X_eval:
+            model = self._build_forest(X_train, y_train)
+            p = self.estimate_cond_probability(X_train, y_train, X_eval, model)
+        elif X_train or y_train or X_eval:
+            raise ValueError("Must supply 'X_train', 'y_train', and 'X_eval' to compute estimate.")
+        else:
+            p = self.cond_probability
+            if p is None:
+                raise ValueError("No previously computed conditional probabilities. Supply training and evaluation data.")
         self.cond_entropy = np.mean(np.multiply(p, np.log2(p)).sum(axis=1)) 
         return self.cond_entropy
 
-    def estimate_mutual_info(self, X_train, y_train, X_eval):
-
+    def estimate_mutual_info(self, X_train = None, y_train = None, X_eval = None):
+        
         self.estimate_cond_entropy(X_train, y_train, X_eval)
-        self._estimate_entropy(y_train)
         self.mutual_info = self.entropy - self.cond_entropy
         return self.mutual_info
