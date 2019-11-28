@@ -1,0 +1,6 @@
+numpy>=1.8.1
+scikit-learn>=0.19.1
+
+[testing]
+pytest
+pytest-cov

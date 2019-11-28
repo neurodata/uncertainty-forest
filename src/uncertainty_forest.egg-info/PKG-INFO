@@ -1,0 +1,34 @@
+Metadata-Version: 2.1
+Name: uncertainty-forest
+Version: 0.0.post0.dev2+g4f31f4b.dirty
+Summary: Add a short description here!
+Home-page: https://github.com/pyscaffold/pyscaffold/
+Author: Ronak Mehta
+Author-email: rmehta004@gmail.com
+License: mit
+Project-URL: Documentation, https://pyscaffold.org/
+Description: ==================
+        uncertainty-forest
+        ==================
+        
+        
+        Add a short description here!
+        
+        
+        Description
+        ===========
+        
+        A longer description of your project goes here...
+        
+        
+        Note
+        ====
+        
+        This project has been set up using PyScaffold 3.2.3. For details and usage
+        information on PyScaffold see https://pyscaffold.org/.
+        
+Platform: any
+Classifier: Development Status :: 4 - Beta
+Classifier: Programming Language :: Python
+Description-Content-Type: text/x-rst; charset=UTF-8
+Provides-Extra: testing
