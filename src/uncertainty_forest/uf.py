@@ -31,12 +31,12 @@ class UncertaintyForest:
 
     def _build_forest(self, X_train, y_train):
 
-        # TO DO: Validate input, understand this check.
-        if X.ndim == 1:
-            raise ValueError('HH: 1d data will cause headaches down the road.')
+        # TO DO: Bake into input validation.
+        if X_train.ndim == 1:
+            raise ValueError('Reshape data as 2D arrays.')
             
         if not max_features:
-            max_features = int(np.ceil(np.sqrt(X.shape[1])))
+            max_features = int(np.ceil(np.sqrt(X_train.shape[1])))
             
         # 'max_samples' determines the number of 'structure' data points that will be used to learn each tree.
         model = BaggingClassifier(DecisionTreeClassifier(max_depth = self.max_depth, 
@@ -106,7 +106,8 @@ class UncertaintyForest:
         n, d  = X_train.shape
         v, d_ = X_eval.shape
         
-        # TO DO: Bake into input validation function?
+        # TO DO: Bake into input validation function?y
+        
         if d != d_:
             raise ValueError("Training and evaluation data must be the same different dimension.")
         
@@ -117,7 +118,8 @@ class UncertaintyForest:
             estimation_set = X_train[estimation_indices]
             
             # Count the occurences of each class in each leaf node, by first extracting the leaves.
-            leaf_nodes = _get_leaves(tree)
+            node_counts = tree.tree_.n_node_samples
+            leaf_nodes = self._get_leaves(tree)
             unique_leaf_nodes = np.unique(leaf_nodes)
             class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))    
 
@@ -128,11 +130,11 @@ class UncertaintyForest:
                 
             # Count the number of data points in each leaf in.
             n_per_leaf = class_counts_per_leaf.sum(axis=1)
-            n_per_leaf[n_per_leaf_sums == 0] = 1 # Avoid divide by zero.
+            n_per_leaf[n_per_leaf == 0] = 1 # Avoid divide by zero.
 
             # Posterior probability distributions in each leaf. Each row is length num_classes.
             posterior_per_leaf = np.divide(class_counts_per_leaf, n_per_leaf)
-            posterior_per_leaf = _finite_sample_correct(posterior_per_leaf, n_per_leaf)
+            posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
             posterior_per_leaf.tolist()
 
             # Posterior probability for each element of the evaluation set.
