@@ -5,6 +5,8 @@ README.rst
 requirements.txt
 setup.cfg
 setup.py
+demos/demo.ipynb
+demos/.ipynb_checkpoints/demo-checkpoint.ipynb
 dist/uncertainty_forest-0.0.post0.dev2+g4f31f4b-py3.7.egg
 dist/uncertainty_forest-0.0.post0.dev2+g4f31f4b.dirty-py3.7.egg
 docs/Makefile
@@ -17,12 +19,15 @@ docs/_static/.gitignore
 src/.DS_Store
 src/uncertainty_forest/__init__.py
 src/uncertainty_forest/skeleton.py
-src/uncertainty_forest/uf.py
+src/uncertainty_forest/uncertainty_forest.py
 src/uncertainty_forest.egg-info/PKG-INFO
 src/uncertainty_forest.egg-info/SOURCES.txt
 src/uncertainty_forest.egg-info/dependency_links.txt
 src/uncertainty_forest.egg-info/not-zip-safe
 src/uncertainty_forest.egg-info/requires.txt
 src/uncertainty_forest.egg-info/top_level.txt
+src/uncertainty_forest/__pycache__/__init__.cpython-37.pyc
+src/uncertainty_forest/__pycache__/uf.cpython-37.pyc
+src/uncertainty_forest/__pycache__/uncertainty_forest.cpython-37.pyc
 tests/conftest.py
 tests/test_skeleton.py
