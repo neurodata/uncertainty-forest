@@ -3,13 +3,13 @@ uncertainty-forest
 ==================
 
 
-Add a short description here!
+Conditional probability, conditional entropy, and mutual information estimation in Python. https://arxiv.org/abs/1907.00325
 
 
 Description
 ===========
 
-A longer description of your project goes here...
+TO DO.
 
 
 Note

@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 from pkg_resources import get_distribution, DistributionNotFound
 
-import uncertainty_forest.uf
+from os.path import dirname, basename, isfile
+import glob
+modules = glob.glob(dirname(__file__)+"/*.py")
+__all__ = [basename(f)[:-3] for f in modules if isfile(f) and not f.endswith('__init__.py')]
+name = "uncertainty_forest"
 
 try:
     # Change here if project is renamed and does not equal the package name

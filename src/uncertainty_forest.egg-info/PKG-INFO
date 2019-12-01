@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: uncertainty-forest
-Version: 0.0.post0.dev2+g4f31f4b.dirty
+Version: 0.0.post0.dev5+g297645d.dirty
 Summary: Add a short description here!
 Home-page: https://github.com/pyscaffold/pyscaffold/
 Author: Ronak Mehta
@@ -12,13 +12,13 @@ Description: ==================
         ==================
         
         
-        Add a short description here!
+        Conditional probability, conditional entropy, and mutual information estimation in Python. https://arxiv.org/abs/1907.00325
         
         
         Description
         ===========
         
-        A longer description of your project goes here...
+        TO DO.
         
         
         Note

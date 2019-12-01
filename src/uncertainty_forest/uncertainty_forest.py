@@ -1,11 +1,11 @@
 from sklearn.ensemble.forest import _generate_unsampled_indices
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
+from scipy.stats import entropy
 
 import numpy as np
 
 class UncertaintyForest:
-
     def __init__(self,
                 max_depth=30,           # D
                 min_samples_leaf=1,     # k
@@ -35,8 +35,8 @@ class UncertaintyForest:
         if X_train.ndim == 1:
             raise ValueError('Reshape data as 2D arrays.')
             
-        if not max_features:
-            max_features = int(np.ceil(np.sqrt(X_train.shape[1])))
+        if not self.max_features:
+            self.max_features = int(np.ceil(np.sqrt(X_train.shape[1])))
             
         # 'max_samples' determines the number of 'structure' data points that will be used to learn each tree.
         model = BaggingClassifier(DecisionTreeClassifier(max_depth = self.max_depth, 
@@ -46,7 +46,7 @@ class UncertaintyForest:
                                                         max_samples = self.max_samples,
                                                         bootstrap = self.bootstrap)
         
-        model.fit(X, y)
+        model.fit(X_train, y_train)
         self.model = model
         return model
 
@@ -78,36 +78,46 @@ class UncertaintyForest:
 
     def _finite_sample_correct(self, posterior_per_leaf, n_per_leaf):
 
-        where_0 = np.argwhere(posterior_per_leaf == 0.0)
-        where_not = np.argwhere(posterior_per_leaf != 0.0)
+        l = posterior_per_leaf.shape[0]
         K = posterior_per_leaf.shape[1]
-        c = np.divide(len(where_0), K*n_per_leaf)
+        ret = np.zeros(posterior_per_leaf.shape)
+        for i in range(l):
+            leaf = posterior_per_leaf[i, :]
+            c = np.divide(l - np.count_nonzero(leaf), K*n_per_leaf[i])
+            
+            ret[i, leaf == 0.0] = np.divide(1, K*n_per_leaf[i])
+            ret[i, leaf != 0.0] = (1 - c)*posterior_per_leaf[i, leaf != 0.0]
         
-        posterior_per_leaf[where_0] = np.divide(1, K*n_per_leaf)
-        posterior_per_leaf[where_not] = (1 - c)*posterior_per_leaf[where_not]
-        
-        return posterior_per_leaf
+        return ret
 
     def _estimate_entropy(self, y_train):
 
-        classes = np.unique(y_train)
-        K = len(classes)
-        n = len(y_train)
-        p = [np.sum(classes[k] == y_train)/n for k in range(K)]
-
-        h = p
-        where_not = np.argwhere(p != 0.0)
-        h[where_not] = np.multiply(p[where_not], np.log2(p[where_not]))
-        self.entropy = np.sum(h)
+        _, counts = np.unique(y_train, return_counts=True)
+        self.entropy = entropy(counts, base = 2)
         return self.entropy
 
-    def estimate_cond_probability(self, X_train, y_train, X_eval, model):
+    def _preprocess_y(self, y):
+        # Chance y values to be indices between 0 and K (number of classes).
+        classes = np.unique(y)
+        K = len(classes)
+        n = len(y)
+        
+        class_to_index = {}
+        for k in range(K):
+            class_to_index[classes[k]] = k
+
+        ret = np.zeros(n)
+        for i in range(n):
+            ret[i] = class_to_index[y[i]]
+    
+        return ret.astype(int)
+
+    def _estimate_posterior(self, X_train, y_train, X_eval, model):
 
         n, d  = X_train.shape
         v, d_ = X_eval.shape
         
-        # TO DO: Bake into input validation function?y
-        
+        # TO DO: Bake into input validation function?
         if d != d_:
             raise ValueError("Training and evaluation data must be the same different dimension.")
         
@@ -115,17 +125,16 @@ class UncertaintyForest:
         for tree in model:
             # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
             estimation_indices = _generate_unsampled_indices(tree.random_state, n)
-            estimation_set = X_train[estimation_indices]
             
             # Count the occurences of each class in each leaf node, by first extracting the leaves.
             node_counts = tree.tree_.n_node_samples
             leaf_nodes = self._get_leaves(tree)
             unique_leaf_nodes = np.unique(leaf_nodes)
-            class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))    
+            class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))
 
             # Drop each estimation example down the tree, and record its 'y' value.
             for i in estimation_indices:
-                temp_node = tree.apply(estimation_set.reshape(1, -1)).item()
+                temp_node = tree.apply(X_train[i].reshape((1, -1))).item()
                 class_counts_per_leaf[np.where(unique_leaf_nodes == temp_node)[0][0], y_train[i]] += 1
                 
             # Count the number of data points in each leaf in.
@@ -133,7 +142,7 @@ class UncertaintyForest:
             n_per_leaf[n_per_leaf == 0] = 1 # Avoid divide by zero.
 
             # Posterior probability distributions in each leaf. Each row is length num_classes.
-            posterior_per_leaf = np.divide(class_counts_per_leaf, n_per_leaf)
+            posterior_per_leaf = np.divide(class_counts_per_leaf, np.repeat(n_per_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
             posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
             posterior_per_leaf.tolist()
 
@@ -143,7 +152,7 @@ class UncertaintyForest:
             
             # Number of estimation points in the cell of each eval point.
             n_per_eval_leaf = np.asarray([node_counts[np.where(unique_leaf_nodes == x)[0][0]] for x in tree.apply(X_eval)])
-            class_counts += np.multiply(eval_posteriors, n_per_eval_leaf)
+            class_counts += np.multiply(eval_posteriors, np.repeat(n_per_eval_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
         
         # Normalize counts.
         self.cond_probability = np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
@@ -153,20 +162,26 @@ class UncertaintyForest:
 
         return self.cond_probability
 
+    def estimate_cond_probability(self, X_train, y_train, X_eval):
+        
+        y_train = self._preprocess_y(y_train)
+        model = self._build_forest(X_train, y_train)
+        return self._estimate_posterior(X_train, y_train, X_eval, model)
+
     def estimate_cond_entropy(self, X_train = None, y_train = None, X_eval = None):
         
         # User can supply training or evaluation data,
         # in which case rewrite stored conditional probability.
-        if X_train and y_train and X_eval:
-            model = self._build_forest(X_train, y_train)
-            p = self.estimate_cond_probability(X_train, y_train, X_eval, model)
-        elif X_train or y_train or X_eval:
+        if (X_train is not None) and (y_train is not None) and (X_eval is not None):
+            p = self.estimate_cond_probability(X_train, y_train, X_eval)
+        elif (X_train is not None) or (y_train is not None) or (X_eval is not None):
             raise ValueError("Must supply 'X_train', 'y_train', and 'X_eval' to compute estimate.")
         else:
             p = self.cond_probability
             if p is None:
                 raise ValueError("No previously computed conditional probabilities. Supply training and evaluation data.")
-        self.cond_entropy = np.mean(np.multiply(p, np.log2(p)).sum(axis=1)) 
+        
+        self.cond_entropy = np.mean(entropy(p.T, base = 2))
         return self.cond_entropy
 
     def estimate_mutual_info(self, X_train = None, y_train = None, X_eval = None):
