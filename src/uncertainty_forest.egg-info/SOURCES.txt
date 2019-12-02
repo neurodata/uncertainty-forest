@@ -1,7 +1,7 @@
 AUTHORS.rst
 CHANGELOG.rst
 LICENSE.txt
-README.rst
+README.md
 requirements.txt
 setup.cfg
 setup.py

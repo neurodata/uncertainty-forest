@@ -1,32 +1,13 @@
 Metadata-Version: 2.1
 Name: uncertainty-forest
-Version: 0.0.post0.dev6+g5afcacd.dirty
+Version: 0.0.post0.dev8+g3cb1ec3.dirty
 Summary: Add a short description here!
 Home-page: https://github.com/pyscaffold/pyscaffold/
 Author: Ronak Mehta
 Author-email: rmehta004@gmail.com
 License: mit
 Project-URL: Documentation, https://pyscaffold.org/
-Description: ==================
-        uncertainty-forest
-        ==================
-        
-        
-        Conditional probability, conditional entropy, and mutual information estimation in Python. https://arxiv.org/abs/1907.00325
-        
-        
-        Description
-        ===========
-        
-        TO DO.
-        
-        
-        Note
-        ====
-        
-        This project has been set up using PyScaffold 3.2.3. For details and usage
-        information on PyScaffold see https://pyscaffold.org/.
-        
+Description: UNKNOWN
 Platform: any
 Classifier: Development Status :: 4 - Beta
 Classifier: Programming Language :: Python

@@ -228,3 +228,198 @@ class UncertaintyForest:
         self.estimate_cond_entropy(X_train, y_train, X_eval, parallel)
         self.mutual_info = self.entropy - self.cond_entropy
         return self.mutual_info
+
+class LifelongForest(UncertaintyForest):
+    def __init__(self):
+
+        # Lifelong Forests attributes
+        self.models_ = []
+        self.X_ = []
+        self.y_ = []
+        self.n_tasks = 0
+
+    def new_forest(self, 
+                X_train, 
+                y_train, 
+                n_estimators=200, 
+                max_samples=0.32,
+                bootstrap=True, 
+                max_depth=30, 
+                min_samples_leaf=1,
+                acorn=None):
+
+        """
+        Input
+        X: an array-like object of features; X.shape == (n_samples, n_features)
+        y: an array-like object of class labels; len(y) == n_samples
+        n_estimators: int; number of trees to construct (default = 200)
+        max_samples: float in (0, 1]: number of samples to consider when 
+            constructing a new tree (default = 0.32)
+        bootstrap: bool; If True then the samples are sampled with replacement
+        max_depth: int; maximum depth of a tree
+        min_samples_leaf: int; minimum number of samples in a leaf node
+        
+        Return
+        model: a BaggingClassifier fit to X, y
+        """
+        
+        if X.ndim == 1:
+            raise ValueError('1d data will cause headaches down the road')
+            
+        if acorn is not None:
+            np.random.seed(acorn)
+
+            
+        n = X_train.shape[0]
+        K = len(np.unique(y_train))
+        
+        max_features = int(np.ceil(np.sqrt(X.shape[1])))
+
+        model=BaggingClassifier(DecisionTreeClassifier(max_depth=max_depth, 
+                                                    min_samples_leaf=min_samples_leaf,
+                                                    max_features = max_features),
+                                n_estimators=n_estimators,
+                                max_samples=max_samples,
+                                bootstrap=bootstrap)
+
+        model.fit(X_train, y_train)
+
+        self.X_.append(X_train)
+        self.y_.append(y_train)
+        self.models_.append(model)
+        self.n_tasks += 1
+        
+        return model
+
+    def _estimate_posterior(self, 
+                            X_eval, 
+                            representation=0, 
+                            decider=0, 
+                            subsample=1, 
+                            parallel=False, 
+                            acorn=None):
+
+        if acorn is not None:
+            np.random.seed(acorn)
+
+        X_train = self.X_[decider]
+        y_train = self.y_[decider]
+
+        model = self.models_[representation]
+
+        n, d  = X_train.shape
+        v, d_ = X_eval.shape
+        
+        # TO DO: Bake into input validation function?
+        if d != d_:
+            raise ValueError("Training and evaluation data must be the same different dimension.")
+
+        if parallel: 
+            def worker(tree, representation, decider):
+
+                if representation == decider:
+                    # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
+                    estimation_indices = _generate_unsampled_indices(tree.random_state, n)
+                else:
+                    estimation_indices = np.random.choice(v, replace=False, p=subsample)
+                
+                # Count the occurences of each class in each leaf node, by first extracting the leaves.
+                node_counts = tree.tree_.n_node_samples
+                leaf_nodes = self._get_leaves(tree)
+                unique_leaf_nodes = np.unique(leaf_nodes)
+                class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))
+
+                # Drop each estimation example down the tree, and record its 'y' value.
+                for i in estimation_indices:
+                    temp_node = tree.apply(X_train[i].reshape((1, -1))).item()
+                    class_counts_per_leaf[np.where(unique_leaf_nodes == temp_node)[0][0], y_train[i]] += 1
+                    
+                # Count the number of data points in each leaf in.
+                n_per_leaf = class_counts_per_leaf.sum(axis=1)
+                n_per_leaf[n_per_leaf == 0] = 1 # Avoid divide by zero.
+
+                # Posterior probability distributions in each leaf. Each row is length num_classes.
+                posterior_per_leaf = np.divide(class_counts_per_leaf, np.repeat(n_per_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
+                posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
+                posterior_per_leaf.tolist()
+
+                # Posterior probability for each element of the evaluation set.
+                eval_posteriors = [posterior_per_leaf[np.where(unique_leaf_nodes == node)[0][0]] for node in tree.apply(X_eval)]
+                eval_posteriors = np.array(eval_posteriors)
+                
+                # Number of estimation points in the cell of each eval point.
+                n_per_eval_leaf = np.asarray([node_counts[np.where(unique_leaf_nodes == x)[0][0]] for x in tree.apply(X_eval)])
+                
+                class_count_increment = np.multiply(eval_posteriors, np.repeat(n_per_eval_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
+                return class_count_increment
+
+            class_counts = np.array(Parallel(n_jobs=-2)(delayed(worker)(tree) for tree in model))
+            class_counts = np.sum(class_counts, axis = 0)
+        else:
+            class_counts = np.zeros((v, model.n_classes_))
+            for tree in model:
+
+                if representation == decider:
+                    # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
+                    estimation_indices = _generate_unsampled_indices(tree.random_state, n)
+                else:
+                    estimation_indices = np.random.choice(v, replace=False, p=subsample)
+                
+                # Count the occurences of each class in each leaf node, by first extracting the leaves.
+                node_counts = tree.tree_.n_node_samples
+                leaf_nodes = self._get_leaves(tree)
+                unique_leaf_nodes = np.unique(leaf_nodes)
+                class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))
+
+                # Drop each estimation example down the tree, and record its 'y' value.
+                for i in estimation_indices:
+                    temp_node = tree.apply(X_train[i].reshape((1, -1))).item()
+                    class_counts_per_leaf[np.where(unique_leaf_nodes == temp_node)[0][0], y_train[i]] += 1
+                    
+                # Count the number of data points in each leaf in.
+                n_per_leaf = class_counts_per_leaf.sum(axis=1)
+                n_per_leaf[n_per_leaf == 0] = 1 # Avoid divide by zero.
+
+                # Posterior probability distributions in each leaf. Each row is length num_classes.
+                posterior_per_leaf = np.divide(class_counts_per_leaf, np.repeat(n_per_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
+                posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
+                posterior_per_leaf.tolist()
+
+                # Posterior probability for each element of the evaluation set.
+                eval_posteriors = [posterior_per_leaf[np.where(unique_leaf_nodes == node)[0][0]] for node in tree.apply(X_eval)]
+                eval_posteriors = np.array(eval_posteriors)
+                
+                # Number of estimation points in the cell of each eval point.
+                n_per_eval_leaf = np.asarray([node_counts[np.where(unique_leaf_nodes == x)[0][0]] for x in tree.apply(X_eval)])
+                class_counts += np.multiply(eval_posteriors, np.repeat(n_per_eval_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
+        
+        # Normalize counts.
+        posteriors = np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
+
+        return posteriors
+
+    def predict(self, 
+                X_eval, 
+                representation='all', 
+                decider=0, 
+                subsample=1,
+                acorn=None):
+
+        sum_posteriors = np.zeros((X_eval.shape[0], self.n_classes))
+        
+        if representation is 'all':
+            for i in range(self.n_tasks):
+                sum_posteriors += self._estimate_posteriors(test,
+                                                            i,
+                                                            decider,
+                                                            subsample,
+                                                            acorn)
+            
+        else:
+            sum_posteriors += self._estimate_posteriors(test,
+                                                        representation,
+                                                        decider,
+                                                        subsample,
+                                                        acorn)
+                
+        return np.argmax(sum_posteriors, axis=1)
