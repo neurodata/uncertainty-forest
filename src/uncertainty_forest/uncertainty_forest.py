@@ -34,7 +34,7 @@ class UncertaintyForest:
 
         # TO DO: Bake into input validation.
         if X_train.ndim == 1:
-            raise ValueError('Reshape data as 2D arrays.')
+            raise ValueError('Reshape `X_train` data n-by-1 2D array.')
             
         if not self.max_features:
             self.max_features = int(np.ceil(np.sqrt(X_train.shape[1])))
@@ -49,19 +49,15 @@ class UncertaintyForest:
         
         model.fit(X_train, y_train)
         self.model = model
-        return model
+        return self.model
 
     def _get_leaves(self, tree):
 
         # TO DO: Check this tutorial.
         # adapted from https://scikit-learn.org/stable/auto_examples/tree/plot_unveil_tree_structure.html
         
-        # TO DO: Remove unnecessary lines.
-        # n_nodes = tree.tree_.node_count
         children_left = tree.tree_.children_left
         children_right = tree.tree_.children_right
-        # feature = tree.tree_.feature
-        # threshold = tree.tree_.threshold
         
         leaf_ids = []
         stack = [(0, -1)] 
@@ -93,7 +89,7 @@ class UncertaintyForest:
 
     def _estimate_entropy(self, y_train):
 
-        _, counts = np.unique(y_train, return_counts=True)
+        _, counts = np.unique(y_train, return_counts = True)
         self.entropy = entropy(counts, base = 2)
         return self.entropy
 
@@ -120,83 +116,54 @@ class UncertaintyForest:
         
         # TO DO: Bake into input validation function?
         if d != d_:
-            raise ValueError("Training and evaluation data must be the same different dimension.")
+            raise ValueError("Training and evaluation data must have the same number of dimension.")
+        
+        def worker(tree):
+            # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
+            estimation_indices = _generate_unsampled_indices(tree.random_state, n)
+            
+            # Count the occurences of each class in each leaf node, by first extracting the leaves.
+            node_counts = tree.tree_.n_node_samples
+            leaf_nodes = self._get_leaves(tree)
+            unique_leaf_nodes = np.unique(leaf_nodes)
+            class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))
 
+            # Drop each estimation example down the tree, and record its 'y' value.
+            for i in estimation_indices:
+                temp_node = tree.apply(X_train[i].reshape((1, -1))).item()
+                class_counts_per_leaf[np.where(unique_leaf_nodes == temp_node)[0][0], y_train[i]] += 1
+                
+            # Count the number of data points in each leaf in.
+            n_per_leaf = class_counts_per_leaf.sum(axis=1)
+            n_per_leaf[n_per_leaf == 0] = 1 # Avoid divide by zero.
+
+            # Posterior probability distributions in each leaf. Each row is length num_classes.
+            posterior_per_leaf = np.divide(class_counts_per_leaf, np.repeat(n_per_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
+            posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
+            posterior_per_leaf.tolist()
+
+            # Posterior probability for each element of the evaluation set.
+            eval_posteriors = [posterior_per_leaf[np.where(unique_leaf_nodes == node)[0][0]] for node in tree.apply(X_eval)]
+            eval_posteriors = np.array(eval_posteriors)
+            
+            # Number of estimation points in the cell of each eval point.
+            n_per_eval_leaf = np.asarray([node_counts[np.where(unique_leaf_nodes == x)[0][0]] for x in tree.apply(X_eval)])
+            
+            class_count_increment = np.multiply(eval_posteriors, np.repeat(n_per_eval_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
+            return class_count_increment
+        
         if parallel: 
-            def worker(tree):
-                # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
-                estimation_indices = _generate_unsampled_indices(tree.random_state, n)
-                
-                # Count the occurences of each class in each leaf node, by first extracting the leaves.
-                node_counts = tree.tree_.n_node_samples
-                leaf_nodes = self._get_leaves(tree)
-                unique_leaf_nodes = np.unique(leaf_nodes)
-                class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))
-
-                # Drop each estimation example down the tree, and record its 'y' value.
-                for i in estimation_indices:
-                    temp_node = tree.apply(X_train[i].reshape((1, -1))).item()
-                    class_counts_per_leaf[np.where(unique_leaf_nodes == temp_node)[0][0], y_train[i]] += 1
-                    
-                # Count the number of data points in each leaf in.
-                n_per_leaf = class_counts_per_leaf.sum(axis=1)
-                n_per_leaf[n_per_leaf == 0] = 1 # Avoid divide by zero.
-
-                # Posterior probability distributions in each leaf. Each row is length num_classes.
-                posterior_per_leaf = np.divide(class_counts_per_leaf, np.repeat(n_per_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
-                posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
-                posterior_per_leaf.tolist()
-
-                # Posterior probability for each element of the evaluation set.
-                eval_posteriors = [posterior_per_leaf[np.where(unique_leaf_nodes == node)[0][0]] for node in tree.apply(X_eval)]
-                eval_posteriors = np.array(eval_posteriors)
-                
-                # Number of estimation points in the cell of each eval point.
-                n_per_eval_leaf = np.asarray([node_counts[np.where(unique_leaf_nodes == x)[0][0]] for x in tree.apply(X_eval)])
-                
-                class_count_increment = np.multiply(eval_posteriors, np.repeat(n_per_eval_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
-                return class_count_increment
-
             class_counts = np.array(Parallel(n_jobs=-2)(delayed(worker)(tree) for tree in model))
             class_counts = np.sum(class_counts, axis = 0)
         else:
             class_counts = np.zeros((v, model.n_classes_))
             for tree in model:
-                # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
-                estimation_indices = _generate_unsampled_indices(tree.random_state, n)
-                
-                # Count the occurences of each class in each leaf node, by first extracting the leaves.
-                node_counts = tree.tree_.n_node_samples
-                leaf_nodes = self._get_leaves(tree)
-                unique_leaf_nodes = np.unique(leaf_nodes)
-                class_counts_per_leaf = np.zeros((len(unique_leaf_nodes), model.n_classes_))
-
-                # Drop each estimation example down the tree, and record its 'y' value.
-                for i in estimation_indices:
-                    temp_node = tree.apply(X_train[i].reshape((1, -1))).item()
-                    class_counts_per_leaf[np.where(unique_leaf_nodes == temp_node)[0][0], y_train[i]] += 1
-                    
-                # Count the number of data points in each leaf in.
-                n_per_leaf = class_counts_per_leaf.sum(axis=1)
-                n_per_leaf[n_per_leaf == 0] = 1 # Avoid divide by zero.
-
-                # Posterior probability distributions in each leaf. Each row is length num_classes.
-                posterior_per_leaf = np.divide(class_counts_per_leaf, np.repeat(n_per_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
-                posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
-                posterior_per_leaf.tolist()
-
-                # Posterior probability for each element of the evaluation set.
-                eval_posteriors = [posterior_per_leaf[np.where(unique_leaf_nodes == node)[0][0]] for node in tree.apply(X_eval)]
-                eval_posteriors = np.array(eval_posteriors)
-                
-                # Number of estimation points in the cell of each eval point.
-                n_per_eval_leaf = np.asarray([node_counts[np.where(unique_leaf_nodes == x)[0][0]] for x in tree.apply(X_eval)])
-                class_counts += np.multiply(eval_posteriors, np.repeat(n_per_eval_leaf.reshape((-1, 1)), model.n_classes_, axis=1))
+                class_counts += worker(tree)
         
         # Normalize counts.
         self.cond_probability = np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
 
-        # Precompute entropy of y to use for mutual info.
+        # Precompute entropy of y to use later for mutual info.
         self._estimate_entropy(y_train)
 
         return self.cond_probability
