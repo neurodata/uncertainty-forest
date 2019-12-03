@@ -36,7 +36,7 @@ joblib
 ### Install from Github
 ```
 git clone https://github.com/neurodata/uncertainty-forest
-cd uncertainty_forest
+cd uncertainty-forest
 python3 setup.py develop
 ```
 
