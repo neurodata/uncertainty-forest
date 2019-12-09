@@ -7,10 +7,12 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted, NotFittedError
 from sklearn.utils.multiclass import unique_labels, check_classification_targets
+from sklearn.exceptions import DataConversionWarning
 
 from scipy.stats import entropy
 from joblib import Parallel, delayed
 import numpy as np
+import warnings
 
 class UncertaintyForest(BaseEstimator, ClassifierMixin):
     def __init__(self,
@@ -29,27 +31,27 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         self.max_samples = max_samples
         self.bootstrap = bootstrap
 
-        self.model = None
-        self.entropy = None
-        self.fitted = False
         self.parallel = parallel
 
     def fit(self, X, y):
 
-        X = check_array(X)
         X, y = check_X_y(X, y)
+        # if y.ndim > 1:
+        #     raise warnings.warn("`y` has greater than 1 dimension - evaluated as vector.", DataConversionWarning)
         check_classification_targets(y)
         self.classes_, y = np.unique(y, return_inverse = True)
         self.X_ = X
         self.y_ = self._preprocess_y(y)
             
-        if not self.max_features:
-            self.max_features = int(np.ceil(np.sqrt(X.shape[1])))
+        if self.max_features:
+            max_features = self.max_features
+        else:
+            max_features = int(np.ceil(np.sqrt(X.shape[1])))
 
         # 'max_samples' determines the number of 'structure' data points that will be used to learn each tree.
         self.model = BaggingClassifier(DecisionTreeClassifier(max_depth = self.max_depth, 
                                                             min_samples_leaf = self.min_samples_leaf,
-                                                            max_features = self.max_features),
+                                                            max_features = max_features),
                                     n_estimators = self.n_estimators,
                                     max_samples = self.max_samples,
                                     bootstrap = self.bootstrap)
@@ -117,11 +119,13 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
     def predict(self, X):
 
-        return np.argmax(self.predict_proba(X), axis = 1)
+        return self.classes_[np.argmax(self.predict_proba(X), axis = 1)]
 
     def predict_proba(self, X):
 
-        if not self.fitted:
+        try:
+             self.fitted
+        except AttributeError:
             msg = ("This %(name)s instance is not fitted yet. Call 'fit' with "
                 "appropriate arguments before using this estimator.")
             raise NotFittedError(msg % {'name': type(self).__name__})
