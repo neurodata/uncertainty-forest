@@ -16,7 +16,7 @@ import warnings
 
 class UncertaintyForest(BaseEstimator, ClassifierMixin):
     def __init__(self,
-                # max_depth = 30,       # D
+                # max_depth = 30,         # D
                 min_samples_leaf = 1,   # k
                 max_features = None,    # m
                 n_estimators = 300,     # B
@@ -98,7 +98,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         ret = np.zeros(posterior_per_leaf.shape)
         for i in range(l):
             leaf = posterior_per_leaf[i, :]
-            c = np.divide(l - np.count_nonzero(leaf), K * n_per_leaf[i])
+            c = np.divide(K - np.count_nonzero(leaf), K * n_per_leaf[i])
             
             ret[i, leaf == 0.0] = np.divide(1, K*n_per_leaf[i])
             ret[i, leaf != 0.0] = (1 - c)*posterior_per_leaf[i, leaf != 0.0]
