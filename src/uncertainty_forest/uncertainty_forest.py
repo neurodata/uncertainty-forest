@@ -16,22 +16,26 @@ import warnings
 
 class UncertaintyForest(BaseEstimator, ClassifierMixin):
     def __init__(self,
-                max_depth = 30,         # D
+                # max_depth = 30,       # D
                 min_samples_leaf = 1,   # k
                 max_features = None,    # m
-                n_estimators = 200,     # B
-                max_samples = .32,      # s // 2
+                n_estimators = 300,     # B
+                max_samples = .5,       # s // 2
                 bootstrap = False,
-                parallel = True):
+                parallel = True,
+                finite_correction = True):
 
-        self.max_depth = max_depth 
+        # Tree parameters.
+        # self.max_depth = max_depth 
         self.min_samples_leaf = min_samples_leaf
         self.max_features = max_features
         self.n_estimators = n_estimators
         self.max_samples = max_samples
         self.bootstrap = bootstrap
 
+        # Model parameters.
         self.parallel = parallel
+        self.finite_correction = finite_correction
 
     def fit(self, X, y):
 
@@ -49,7 +53,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             max_features = int(np.ceil(np.sqrt(X.shape[1])))
 
         # 'max_samples' determines the number of 'structure' data points that will be used to learn each tree.
-        self.model = BaggingClassifier(DecisionTreeClassifier(max_depth = self.max_depth, 
+        self.model = BaggingClassifier(DecisionTreeClassifier(#max_depth = self.max_depth, 
                                                             min_samples_leaf = self.min_samples_leaf,
                                                             max_features = max_features),
                                     n_estimators = self.n_estimators,
@@ -158,7 +162,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
             # Posterior probability distributions in each leaf. Each row is length num_classes.
             posterior_per_leaf = np.divide(class_counts_per_leaf, np.repeat(n_per_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1))
-            posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
+            if self.finite_correction:
+                posterior_per_leaf = self._finite_sample_correct(posterior_per_leaf, n_per_leaf)
             posterior_per_leaf.tolist()
 
             # Posterior probability for each element of the evaluation set.
