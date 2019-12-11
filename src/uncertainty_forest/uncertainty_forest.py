@@ -16,14 +16,15 @@ import warnings
 
 class UncertaintyForest(BaseEstimator, ClassifierMixin):
     def __init__(self,
-                # max_depth = 30,         # D
+                # max_depth = 30,       # D
                 min_samples_leaf = 1,   # k
                 max_features = None,    # m
                 n_estimators = 300,     # B
                 max_samples = .5,       # s // 2
                 bootstrap = False,
                 parallel = True,
-                finite_correction = True):
+                finite_correction = True,
+                base = 2.0):
 
         # Tree parameters.
         # self.max_depth = max_depth 
@@ -36,6 +37,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         # Model parameters.
         self.parallel = parallel
         self.finite_correction = finite_correction
+        self.base = base
 
     def fit(self, X, y):
 
@@ -64,7 +66,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
         # Precompute entropy of y to use later for mutual info.
         _, counts = np.unique(y, return_counts = True)
-        self.entropy = entropy(counts, base = 2)
+        self.entropy = entropy(counts, base = self.base)
 
         self.fitted = True
         return self
@@ -190,7 +192,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
     def estimate_cond_entropy(self, X):
         
         p = self.predict_proba(X)
-        return np.mean(entropy(p.T, base = 2))
+        return np.mean(entropy(p.T, base = self.base))
 
     def estimate_mutual_info(self, X):
         
