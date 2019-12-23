@@ -57,7 +57,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             self.max_features = int(np.floor(np.sqrt(d)))
 
         if not self.min_samples_leaf:
-            self.min_samples_leaf = int(np.ceil(0.25 * np.sqrt(n)))
+            self.min_samples_leaf = int(np.ceil(0.15 * np.sqrt(n)))
 
         if not self.max_samples:
             self.max_samples = int(np.ceil(0.5 * (n ** 0.95)))
