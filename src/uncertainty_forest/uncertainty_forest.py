@@ -112,9 +112,9 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         ret = np.zeros(posterior_per_leaf.shape)
         for i in range(num_leaves):
             leaf = posterior_per_leaf[i, :]
-            c = np.divide(K - np.count_nonzero(leaf), K * n_per_leaf[i])
+            c = np.divide(K - np.count_nonzero(leaf), 2 * K * n_per_leaf[i])
 
-            ret[i, leaf == 0.0] = np.divide(1, K * n_per_leaf[i])
+            ret[i, leaf == 0.0] = np.divide(1, 2 * K * n_per_leaf[i])
             ret[i, leaf != 0.0] = (1 - c) * posterior_per_leaf[i, leaf != 0.0]
 
         return ret
