@@ -20,6 +20,7 @@ import numpy as np
 class UncertaintyForest(BaseEstimator, ClassifierMixin):
     def __init__(
         self,
+        max_depth=40,
         min_samples_leaf=None,  # k
         max_features=None,  # m
         n_estimators=300,  # B
@@ -31,7 +32,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
     ):
 
         # Tree parameters.
-        # self.max_depth = max_depth
+        self.max_depth = max_depth
         self.min_samples_leaf = min_samples_leaf
         self.max_features = max_features
         self.n_estimators = n_estimators
@@ -66,7 +67,9 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         # that will be used to learn each tree.
         self.model = BaggingClassifier(
             DecisionTreeClassifier(  # max_depth = self.max_depth,
-                min_samples_leaf=self.min_samples_leaf, max_features=self.max_features
+                max_depth=self.max.depth,
+                min_samples_leaf=self.min_samples_leaf,
+                max_features=self.max_features,
             ),
             n_estimators=self.n_estimators,
             max_samples=self.max_samples,
