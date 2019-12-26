@@ -67,7 +67,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         # that will be used to learn each tree.
         self.model = BaggingClassifier(
             DecisionTreeClassifier(  # max_depth = self.max_depth,
-                max_depth=self.max.depth,
+                max_depth=self.max_depth,
                 min_samples_leaf=self.min_samples_leaf,
                 max_features=self.max_features,
             ),
