@@ -1,6 +1,5 @@
-# RF test
+# RF
 from sklearn.ensemble.forest import _generate_unsampled_indices
-from sklearn.ensemble.forest import _generate_sample_indices
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
 
@@ -16,7 +15,6 @@ from sklearn.utils.multiclass import check_classification_targets
 from scipy.stats import entropy
 from joblib import Parallel, delayed
 import numpy as np
-
 
 
 class UncertaintyForest(BaseEstimator, ClassifierMixin):
@@ -53,11 +51,9 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         self.classes_, y = np.unique(y, return_inverse=True)
         self.X_ = X
         self.y_ = self._preprocess_y(y)
-        
-        n = X.shape[0]
-        d = X.shape[1]
 
         if not self.max_features:
+            d = X.shape[1]
             self.max_features = int(np.floor(np.sqrt(d)))
 
         # 'max_samples' determines the number of 'structure' data points
@@ -79,8 +75,55 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         _, counts = np.unique(y, return_counts=True)
         self.entropy = entropy(counts, base=self.base)
 
+        self.posterior_per_tree = self._estimate_posteriors()
+
         self.fitted = True
         return self
+
+    def _estimate_posteriors(self):
+
+        n = self.X_.shape[0]
+
+        def worker(tree):
+            # Get indices of estimation set, i.e. those NOT used
+            # in learning trees of the forest.
+            estimation_indices = _generate_unsampled_indices(tree.random_state, n)
+
+            # Count the occurences of each class in each leaf node,
+            # by first extracting the leaves.
+            # node_counts = tree.tree_.n_node_samples
+            unique_leaf_nodes = self._get_leaves(tree)
+
+            class_counts_per_leaf = np.zeros(
+                (len(unique_leaf_nodes), self.model.n_classes_)
+            )
+
+            # Drop each estimation example down the tree, and record its 'y' value.
+            for i in estimation_indices:
+                temp_node = tree.apply(self.X_[i].reshape((1, -1))).item()
+                class_counts_per_leaf[
+                    np.where(unique_leaf_nodes == temp_node)[0][0], self.y_[i]
+                ] += 1
+
+            # Count the number of data points in each leaf in.
+            n_per_leaf = class_counts_per_leaf.sum(axis=1)
+            n_per_leaf[n_per_leaf == 0] = 1  # Avoid divide by zero.
+
+            # Posterior probability distributions in each leaf.
+            # Each row is length num_classes.
+            posterior_per_leaf = np.divide(
+                class_counts_per_leaf,
+                np.repeat(n_per_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1),
+            )
+            if self.finite_correction:
+                posterior_per_leaf = self._finite_sample_correct(
+                    posterior_per_leaf, n_per_leaf
+                )
+            posterior_per_leaf.tolist()
+
+            return (posterior_per_leaf.tolist(), tree, unique_leaf_nodes)
+
+        return Parallel(n_jobs=-2)(delayed(worker)(tree) for tree in self.model)
 
     def _get_leaves(self, tree):
 
@@ -158,41 +201,11 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                 "Training and evaluation data must have the same number of dimensions."
             )
 
-        def worker(tree):
-            # Get indices of estimation set, i.e. those NOT used
-            # in learning trees of the forest.
-            estimation_indices = _generate_unsampled_indices(tree.random_state, n)
+        def worker(tree_fields):
 
-            # Count the occurences of each class in each leaf node, by first extracting the leaves.
-            node_counts = tree.tree_.n_node_samples
-            unique_leaf_nodes = self._get_leaves(tree)
-
-            class_counts_per_leaf = np.zeros(
-                (len(unique_leaf_nodes), self.model.n_classes_)
-            )
-
-            # Drop each estimation example down the tree, and record its 'y' value.
-            for i in estimation_indices:
-                temp_node = tree.apply(self.X_[i].reshape((1, -1))).item()
-                class_counts_per_leaf[
-                    np.where(unique_leaf_nodes == temp_node)[0][0], self.y_[i]
-                ] += 1
-
-            # Count the number of data points in each leaf in.
-            n_per_leaf = class_counts_per_leaf.sum(axis=1)
-            n_per_leaf[n_per_leaf == 0] = 1  # Avoid divide by zero.
-
-            # Posterior probability distributions in each leaf.
-            # Each row is length num_classes.
-            posterior_per_leaf = np.divide(
-                class_counts_per_leaf,
-                np.repeat(n_per_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1),
-            )
-            if self.finite_correction:
-                posterior_per_leaf = self._finite_sample_correct(
-                    posterior_per_leaf, n_per_leaf
-                )
-            posterior_per_leaf.tolist()
+            posterior_per_leaf = tree_fields[0]
+            tree = tree_fields[1]
+            unique_leaf_nodes = tree_fields[2]
 
             # Posterior probability for each element of the evaluation set.
             eval_posteriors = [
@@ -202,16 +215,12 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
             return np.array(eval_posteriors)
 
-        if self.parallel:
-            posteriors = np.array(
-                Parallel(n_jobs=-2)(delayed(worker)(tree) for tree in self.model)
+        posteriors = np.array(
+            Parallel(n_jobs=-2)(
+                delayed(worker)(tree_fields) for tree_fields in self.posterior_per_tree
             )
-            return = np.mean(posteriors, axis=0)
-        else:
-            posteriors = np.zeros((v, self.model.n_classes_))
-            for tree in self.model:
-                posteriors += worker(tree)
-            return posteriors / self.n_estimators
+        )
+        return np.mean(posteriors, axis=0)
 
     def estimate_cond_entropy(self, X):
 
@@ -223,7 +232,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         return self.entropy - self.estimate_cond_entropy(X)
 
     def predict_proba_leaves(self, X):
-    # This version of the function does not apply "unique" to the result of "_get_leaves."
+        # This version of the function does not
+        # apply "unique" to the result of "_get_leaves."
 
         try:
             self.fitted
@@ -244,15 +254,18 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             )
 
         def worker(tree):
-            # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
+            # Get indices of estimation set, i.e. those NOT used
+            #  for learning trees of the forest.
             estimation_indices = _generate_unsampled_indices(tree.random_state, n)
 
-            # Count the occurences of each class in each leaf node, by first extracting the leaves.
-            node_counts = tree.tree_.n_node_samples
+            # Count the occurences of each class in each leaf node,
+            # by first extracting the leaves.
+            # node_counts = tree.tree_.n_node_samples
             leaf_nodes = self._get_leaves(tree)
             # unique_leaf_nodes = np.unique(leaf_nodes)
             # The commented code below shows that leaf_nodes is already a unique list.
-            # print(f"Tree {tree}: {len(leaf_nodes)} leaf nodes, {len(unique_leaf_nodes)} unique leaf nodes")
+            # print(f"Tree {tree}: {len(leaf_nodes)} leaf nodes,
+            # {len(unique_leaf_nodes)} unique leaf nodes")
             class_counts_per_leaf = np.zeros(
                 # (len(unique_leaf_nodes), self.model.n_classes_)
                 (len(leaf_nodes), self.model.n_classes_)
@@ -272,7 +285,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             n_per_leaf = class_counts_per_leaf.sum(axis=1)
             n_per_leaf[n_per_leaf == 0] = 1  # Avoid divide by zero.
 
-            # Posterior probability distributions in each leaf. Each row is length num_classes.
+            # Posterior probability distributions in each leaf.
+            # Each row is length num_classes.
             posterior_per_leaf = np.divide(
                 class_counts_per_leaf,
                 np.repeat(n_per_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1),
@@ -290,25 +304,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                 posterior_per_leaf[np.where(leaf_nodes == node)[0][0]]
                 for node in tree.apply(X)
             ]
-            eval_posteriors = np.array(eval_posteriors)
 
-            # Number of estimation points in the cell of each eval point.
-            n_per_eval_leaf = np.asarray(
-                [
-                    # node_counts[np.where(unique_leaf_nodes == x)[0][0]]
-                    # for x in tree.apply(X)
-                    node_counts[np.where(leaf_nodes == x)[0][0]]
-                    for x in tree.apply(X)
-                ]
-            )
-
-            # class_count_increment = np.multiply(
-            #     eval_posteriors,
-            #     np.repeat(
-            #         n_per_eval_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1
-            #     ),
-            # )
-            return eval_posteriors
+            return np.array(eval_posteriors)
 
         if self.parallel:
             class_counts = np.array(
@@ -351,9 +348,11 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
             # region Get leaf size and leaf posteriors from training data (D_E).
 
-            # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
+            # Get indices of estimation set, i.e. those NOT used
+            # for learning trees of the forest.
             estimation_indices = _generate_unsampled_indices(tree.random_state, n)
-            # Count the occurences of each class in each leaf node, by first extracting the leaves.
+            # Count the occurences of each class in each leaf node,
+            # by first extracting the leaves.
             leaf_nodes = self._get_leaves(tree)
             unique_leaf_nodes = np.unique(leaf_nodes)
             class_counts_per_leaf = np.zeros(
@@ -370,14 +369,15 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             n_per_leaf = class_counts_per_leaf.sum(axis=1)
             n_per_leaf[n_per_leaf == 0] = 1  # Avoid divide by zero.
 
-            # Posterior probability distributions in each leaf. Each row is length num_classes.
+            # Posterior probability distributions in each leaf.
+            # Each row is length num_classes.
             posterior_per_leaf = np.divide(
                 class_counts_per_leaf,
                 np.repeat(n_per_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1),
             )
 
-            # Note that we don't need anything related to the validation set that is used to 
-            # estimate conditional entropy or mutual information.
+            # Note that we don't need anything related to the validation set
+            # that is used to estimate conditional entropy or mutual information.
 
             if self.finite_correction:
                 posterior_per_leaf = self._finite_sample_correct(
@@ -422,21 +422,21 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                     stack.append((children_right[node_id], parent_depth + 1))
                 else:
                     is_leaves[node_id] = True
-            
+
             # Pick a sample from each leaf in order to retrieve its path.
-            # Here first_member is the first element in the training data assigned to each leaf.
+            # Here first_member is the first element in
+            # the training data assigned to each leaf.
             first_member = np.zeros(len(unique_leaf_nodes))
             idx = 0
             for leaf in unique_leaf_nodes:
-                first_member[idx] = np.asarray(np.where(train_leaves == leaf))[
-                    0, 0
-                ]
+                first_member[idx] = np.asarray(np.where(train_leaves == leaf))[0, 0]
                 idx = idx + 1
             first_member = first_member.astype(int)
             # What path leads to a leaf for each first member?
             node_indicator = tree.decision_path(self.X_[first_member, :])
             # Step through the path to each leaf.
-            # If we encounter a split on X_j, we note the threshold and the direction, and then we update the interval object.
+            # If we encounter a split on X_j, we note the threshold and the direction,
+            # and then we update the interval object.
             leaf_idx = 0
             for sample_id in range(0, len(first_member)):
                 node_index = node_indicator.indices[
@@ -445,7 +445,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                     ]
                 ]
                 for node_id in node_index:
-                    # This check is for leaf nodes where the identified "feature" is always -2.
+                    # This check is for leaf nodes where the
+                    # identified "feature" is always -2.
                     if feature[node_id] == -2:
                         continue
                     # Update leaf interval min and max as required.
@@ -498,9 +499,11 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
             # region Get leaf size and leaf posteriors from training data (D_E).
 
-            # Get indices of estimation set, i.e. those NOT used in for learning trees of the forest.
+            # Get indices of estimation set, i.e. those NOT used
+            # for learning trees of the forest.
             estimation_indices = _generate_unsampled_indices(tree.random_state, n)
-            # Count the occurences of each class in each leaf node, by first extracting the leaves.
+            # Count the occurences of each class in each leaf node,
+            # by first extracting the leaves.
             leaf_nodes = self._get_leaves(tree)
             # unique_leaf_nodes = np.unique(leaf_nodes)
             class_counts_per_leaf = np.zeros(
@@ -521,14 +524,15 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             n_per_leaf = class_counts_per_leaf.sum(axis=1)
             n_per_leaf[n_per_leaf == 0] = 1  # Avoid divide by zero.
 
-            # Posterior probability distributions in each leaf. Each row is length num_classes.
+            # Posterior probability distributions in each leaf.
+            # Each row is length num_classes.
             posterior_per_leaf = np.divide(
                 class_counts_per_leaf,
                 np.repeat(n_per_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1),
             )
 
-            # Note that we don't need anything related to the validation set that is used to 
-            # estimate conditional entropy or mutual information.
+            # Note that we don't need anything related to the validation set that
+            # is used to estimate conditional entropy or mutual information.
 
             if self.finite_correction:
                 posterior_per_leaf = self._finite_sample_correct(
@@ -573,23 +577,23 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                     stack.append((children_right[node_id], parent_depth + 1))
                 else:
                     is_leaves[node_id] = True
-            
+
             # Pick a sample from each leaf in order to retrieve its path.
-            # Here first_member is the first element in the training data assigned to each leaf.
+            # Here first_member is the first element
+            # in the training data assigned to each leaf.
             # first_member = np.zeros(len(unique_leaf_nodes))
             first_member = np.zeros(len(leaf_nodes))
             idx = 0
             # for leaf in unique_leaf_nodes:
             for leaf in leaf_nodes:
-                first_member[idx] = np.asarray(np.where(train_leaves == leaf))[
-                    0, 0
-                ]
+                first_member[idx] = np.asarray(np.where(train_leaves == leaf))[0, 0]
                 idx = idx + 1
             first_member = first_member.astype(int)
             # What path leads to a leaf for each first member?
             node_indicator = tree.decision_path(self.X_[first_member, :])
             # Step through the path to each leaf.
-            # If we encounter a split on X_j, we note the threshold and the direction, and then we update the interval object.
+            # If we encounter a split on X_j, we note the threshold and the direction,
+            # and then we update the interval object.
             leaf_idx = 0
             for sample_id in range(0, len(first_member)):
                 node_index = node_indicator.indices[
@@ -598,7 +602,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                     ]
                 ]
                 for node_id in node_index:
-                    # This check is for leaf nodes where the identified "feature" is always -2.
+                    # This check is for leaf nodes where the
+                    # identified "feature" is always -2.
                     if feature[node_id] == -2:
                         continue
                     # Update leaf interval min and max as required.
@@ -622,6 +627,6 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             tree_list.append(np.asarray(leaf_dim_max))
             # Add all tree features to the forest object.
             forest.append(tree_list)
-        
+
         print("test-leaf_stats")
         return forest
