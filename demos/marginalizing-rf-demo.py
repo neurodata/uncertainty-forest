@@ -86,7 +86,7 @@ uf.fit(X_train, y_train)
 
 # %% Obtain the alternate forest representations.
 forest_unique_leaves = uf.leaf_stats()
-forest_leaves = uf.leaf_stats()
+forest_leaves = uf.leaf_stats_leaves()
 
 # %% Calculate probabilities using the alternate forest representations.
 def predict_proba_2(

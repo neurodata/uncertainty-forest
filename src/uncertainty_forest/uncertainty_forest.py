@@ -164,8 +164,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
             # Count the occurences of each class in each leaf node, by first extracting the leaves.
             node_counts = tree.tree_.n_node_samples
-            leaf_nodes = self._get_leaves(tree)
-            unique_leaf_nodes = np.unique(leaf_nodes)
+            unique_leaf_nodes = self._get_leaves(tree)
+            # unique_leaf_nodes = np.unique(leaf_nodes)
             class_counts_per_leaf = np.zeros(
                 (len(unique_leaf_nodes), self.model.n_classes_)
             )
@@ -207,26 +207,29 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                 ]
             )
 
-            class_count_increment = np.multiply(
-                eval_posteriors,
-                np.repeat(
-                    n_per_eval_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1
-                ),
-            )
-            return class_count_increment
+            # class_count_increment = np.multiply(
+            #     eval_posteriors,
+            #     np.repeat(
+            #         n_per_eval_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1
+            #     ),
+            # )
+            return eval_posteriors
 
         if self.parallel:
             class_counts = np.array(
                 Parallel(n_jobs=-2)(delayed(worker)(tree) for tree in self.model)
             )
-            class_counts = np.sum(class_counts, axis=0)
+            class_counts = np.mean(class_counts, axis=0)
         else:
             class_counts = np.zeros((v, self.model.n_classes_))
             for tree in self.model:
                 class_counts += worker(tree)
+            class_counts = class_counts / self.n_estimators
 
         # Normalize counts.
-        return np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
+        print("test - unique")
+        return class_counts
+        # return np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
 
     def estimate_cond_entropy(self, X):
 
@@ -317,26 +320,29 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                 ]
             )
 
-            class_count_increment = np.multiply(
-                eval_posteriors,
-                np.repeat(
-                    n_per_eval_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1
-                ),
-            )
-            return class_count_increment
+            # class_count_increment = np.multiply(
+            #     eval_posteriors,
+            #     np.repeat(
+            #         n_per_eval_leaf.reshape((-1, 1)), self.model.n_classes_, axis=1
+            #     ),
+            # )
+            return eval_posteriors
 
         if self.parallel:
             class_counts = np.array(
                 Parallel(n_jobs=-2)(delayed(worker)(tree) for tree in self.model)
             )
-            class_counts = np.sum(class_counts, axis=0)
+            class_counts = np.mean(class_counts, axis=0)
         else:
             class_counts = np.zeros((v, self.model.n_classes_))
             for tree in self.model:
                 class_counts += worker(tree)
+            class_counts = class_counts / self.n_estimators
 
         # Normalize counts.
-        return np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
+        print("test")
+        return class_counts
+        # return np.divide(class_counts, class_counts.sum(axis=1, keepdims=True))
 
     def leaf_stats(self):
 
@@ -482,6 +488,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             # Add all tree features to the forest object.
             forest.append(tree_list)
 
+        print("test-leaf_stats - unique")
         return forest
 
     def leaf_stats_leaves(self):
@@ -633,5 +640,6 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             tree_list.append(np.asarray(leaf_dim_max))
             # Add all tree features to the forest object.
             forest.append(tree_list)
-
+        
+        print("test-leaf_stats")
         return forest
