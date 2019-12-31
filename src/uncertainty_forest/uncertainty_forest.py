@@ -24,7 +24,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         min_samples_leaf=1,  # k
         max_features=None,  # m
         n_estimators=300,  # B
-        max_samples=0.5,  # s // 2
+        max_samples=0.32,  # s // 2
         bootstrap=False,
         parallel=True,
         finite_correction=True,
@@ -49,8 +49,6 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         X, y = check_X_y(X, y)
         check_classification_targets(y)
         self.classes_, y = np.unique(y, return_inverse=True)
-        self.X_ = X
-        self.y_ = self._preprocess_y(y)
 
         if not self.max_features:
             d = X.shape[1]
@@ -70,24 +68,28 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         )
 
         self.model.fit(X, y)
+        self.posterior_per_tree, self.cond_entropy = self._estimate_posteriors(
+            X, self._preprocess_y(y)
+        )
 
-        # Precompute entropy of y to use later for mutual info.
         _, counts = np.unique(y, return_counts=True)
-        self.entropy = entropy(counts, base=self.base)
-
-        self.posterior_per_tree = self._estimate_posteriors()
+        self.mutual_info = entropy(counts, base=self.base) - self.cond_entropy
 
         self.fitted = True
         return self
 
-    def _estimate_posteriors(self):
+    def _estimate_posteriors(self, X, y):
 
-        n = self.X_.shape[0]
+        n = X.shape[0]
 
         def worker(tree):
             # Get indices of estimation set, i.e. those NOT used
             # in learning trees of the forest.
-            estimation_indices = _generate_unsampled_indices(tree.random_state, n)
+            unsampled_nodes = _generate_unsampled_indices(tree.random_state, n)
+            np.random.shuffle(unsampled_nodes)
+
+            estimation_indices = unsampled_nodes[: len(unsampled_nodes) // 2]
+            eval_indices = unsampled_nodes[len(unsampled_nodes) // 2 + 1 :]
 
             # Count the occurences of each class in each leaf node,
             # by first extracting the leaves.
@@ -100,9 +102,9 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
             # Drop each estimation example down the tree, and record its 'y' value.
             for i in estimation_indices:
-                temp_node = tree.apply(self.X_[i].reshape((1, -1))).item()
+                temp_node = tree.apply(X[i].reshape((1, -1))).item()
                 class_counts_per_leaf[
-                    np.where(unique_leaf_nodes == temp_node)[0][0], self.y_[i]
+                    np.where(unique_leaf_nodes == temp_node)[0][0], y[i]
                 ] += 1
 
             # Count the number of data points in each leaf in.
@@ -119,11 +121,31 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                 posterior_per_leaf = self._finite_sample_correct(
                     posterior_per_leaf, n_per_leaf
                 )
-            posterior_per_leaf.tolist()
+            posterior_per_leaf = posterior_per_leaf.tolist()
 
-            return (posterior_per_leaf.tolist(), tree, unique_leaf_nodes)
+            # Posterior probability for each element of the evaluation set.
+            eval_posteriors = np.array(
+                [
+                    posterior_per_leaf[np.where(unique_leaf_nodes == node)[0][0]]
+                    for node in tree.apply(X[eval_indices, :])
+                ]
+            )
 
-        return Parallel(n_jobs=-2)(delayed(worker)(tree) for tree in self.model)
+            cond_entropy = np.mean(entropy(eval_posteriors.T, base=self.base))
+
+            return (posterior_per_leaf, tree, unique_leaf_nodes, cond_entropy)
+
+        uncertainty_per_tree = Parallel(n_jobs=-2)(
+            delayed(worker)(tree) for tree in self.model
+        )
+
+        cond_entropies = []
+        posterior_per_tree = []
+        for elem in uncertainty_per_tree:
+            posterior_per_tree.append(elem[0:3])
+            cond_entropies.append(elem[3])
+
+        return posterior_per_tree, np.mean(cond_entropies)
 
     def _get_leaves(self, tree):
 
@@ -193,13 +215,6 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             raise NotFittedError(msg % {"name": type(self).__name__})
 
         X = check_array(X)
-        n, d_ = self.X_.shape
-        v, d = X.shape
-
-        if d != d_:
-            raise ValueError(
-                "Training and evaluation data must have the same number of dimensions."
-            )
 
         def worker(tree_fields):
 
@@ -222,14 +237,13 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         )
         return np.mean(posteriors, axis=0)
 
-    def estimate_cond_entropy(self, X):
+    def estimate_cond_entropy(self):
 
-        p = self.predict_proba(X)
-        return np.mean(entropy(p.T, base=self.base))
+        return self.cond_entropy
 
-    def estimate_mutual_info(self, X):
+    def estimate_mutual_info(self):
 
-        return self.entropy - self.estimate_cond_entropy(X)
+        return self.mutual_info
 
     def predict_proba_leaves(self, X):
         # This version of the function does not
