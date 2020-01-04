@@ -20,11 +20,13 @@ import numpy as np
 class UncertaintyForest(BaseEstimator, ClassifierMixin):
     def __init__(
         self,
-        max_depth=40,
-        min_samples_leaf=1,  # k
-        max_features=None,  # m
-        n_estimators=300,  # B
-        max_samples=0.32,  # s // 2
+        max_depth=30,
+        min_samples_leaf=1,
+        max_features=None,
+        n_estimators=300,
+        frac_struct=0.56,
+        frac_est=0.14,
+        frac_eval=0.30,
         bootstrap=False,
         parallel=True,
         finite_correction=True,
@@ -36,7 +38,9 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         self.min_samples_leaf = min_samples_leaf
         self.max_features = max_features
         self.n_estimators = n_estimators
-        self.max_samples = max_samples
+        self.frac_struct = frac_struct
+        self.frac_est = frac_est
+        self.frac_eval = frac_eval
         self.bootstrap = bootstrap
 
         # Model parameters.
@@ -50,12 +54,13 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         check_classification_targets(y)
         self.classes_, y = np.unique(y, return_inverse=True)
 
+        if self.frac_struct + self.frac_est + self.frac_eval != 1.0:
+            raise ValueError("frac_struct + frac_est + frac_eval must equal 1.")
+
         if not self.max_features:
             d = X.shape[1]
             self.max_features = int(np.floor(np.sqrt(d)))
 
-        # 'max_samples' determines the number of 'structure' data points
-        # that will be used to learn each tree.
         self.model = BaggingClassifier(
             DecisionTreeClassifier(  # max_depth = self.max_depth,
                 max_depth=self.max_depth,
@@ -63,7 +68,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
                 max_features=self.max_features,
             ),
             n_estimators=self.n_estimators,
-            max_samples=self.max_samples,
+            max_samples=self.frac_struct,
             bootstrap=self.bootstrap,
         )
 
@@ -88,8 +93,9 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             unsampled_nodes = _generate_unsampled_indices(tree.random_state, n)
             np.random.shuffle(unsampled_nodes)
 
-            estimation_indices = unsampled_nodes[: len(unsampled_nodes) // 2]
-            eval_indices = unsampled_nodes[len(unsampled_nodes) // 2 + 1 :]
+            num_est = int(np.ceil(self.frac_est * n))
+            estimation_indices = unsampled_nodes[:num_est]
+            eval_indices = unsampled_nodes[num_est:]
 
             # Count the occurences of each class in each leaf node,
             # by first extracting the leaves.
@@ -135,9 +141,14 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
             return (posterior_per_leaf, tree, unique_leaf_nodes, cond_entropy)
 
-        uncertainty_per_tree = Parallel(n_jobs=-2)(
-            delayed(worker)(tree) for tree in self.model
-        )
+        if self.parallel:
+            uncertainty_per_tree = Parallel(n_jobs=-2)(
+                delayed(worker)(tree) for tree in self.model
+            )
+        else:
+            uncertainty_per_tree = []
+            for tree in self.model:
+                uncertainty_per_tree.append(worker(tree))
 
         cond_entropies = []
         posterior_per_tree = []
@@ -239,9 +250,27 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
     def estimate_cond_entropy(self):
 
+        try:
+            self.fitted
+        except AttributeError:
+            msg = (
+                "This %(name)s instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this estimator."
+            )
+            raise NotFittedError(msg % {"name": type(self).__name__})
+
         return self.cond_entropy
 
     def estimate_mutual_info(self):
+
+        try:
+            self.fitted
+        except AttributeError:
+            msg = (
+                "This %(name)s instance is not fitted yet. Call 'fit' with "
+                "appropriate arguments before using this estimator."
+            )
+            raise NotFittedError(msg % {"name": type(self).__name__})
 
         return self.mutual_info
 
