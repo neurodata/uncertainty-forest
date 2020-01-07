@@ -24,10 +24,10 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         min_samples_leaf=1,
         max_features=None,
         n_estimators=300,
-        frac_struct=0.56,
-        frac_est=0.14,
-        frac_eval=0.30,
-        bootstrap=False,
+        frac_struct=0.32,
+        frac_est=0.34,
+        frac_eval=0.34,
+        bootstrap=True,
         parallel=True,
         finite_correction=True,
         base=2.0,
@@ -61,6 +61,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             d = X.shape[1]
             self.max_features = int(np.floor(np.sqrt(d)))
 
+        print(self.frac_struct)
         self.model = BaggingClassifier(
             DecisionTreeClassifier(  # max_depth = self.max_depth,
                 max_depth=self.max_depth,
@@ -90,12 +91,18 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         def worker(tree):
             # Get indices of estimation set, i.e. those NOT used
             # in learning trees of the forest.
-            unsampled_nodes = _generate_unsampled_indices(tree.random_state, n)
-            np.random.shuffle(unsampled_nodes)
+            unsampled_data = _generate_unsampled_indices(tree.random_state, n)
+            print("STRUCT 1", n - len(unsampled_data))
+            np.random.shuffle(unsampled_data)
 
             num_est = int(np.ceil(self.frac_est * n))
-            estimation_indices = unsampled_nodes[:num_est]
-            eval_indices = unsampled_nodes[num_est:]
+            estimation_indices = unsampled_data[:num_est]
+            eval_indices = unsampled_data[num_est:]
+
+            print("n", n)
+            print("STRUCT", n - len(unsampled_data))
+            print("EST", len(estimation_indices))
+            print("EVAL", len(eval_indices))
 
             # Count the occurences of each class in each leaf node,
             # by first extracting the leaves.
