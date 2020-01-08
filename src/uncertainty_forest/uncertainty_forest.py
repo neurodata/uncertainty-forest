@@ -92,17 +92,17 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             # Get indices of estimation set, i.e. those NOT used
             # in learning trees of the forest.
             unsampled_data = _generate_unsampled_indices(tree.random_state, n)
-            print("STRUCT 1", n - len(unsampled_data))
             np.random.shuffle(unsampled_data)
+            num_est = len(unsampled_data) // 2
 
-            num_est = int(np.ceil(self.frac_est * n))
+            # num_est = int(np.ceil(self.frac_est * n))
             estimation_indices = unsampled_data[:num_est]
             eval_indices = unsampled_data[num_est:]
 
-            print("n", n)
-            print("STRUCT", n - len(unsampled_data))
-            print("EST", len(estimation_indices))
-            print("EVAL", len(eval_indices))
+            # print("n", n)
+            # print("STRUCT", n - len(unsampled_data))
+            # print("EST", len(estimation_indices))
+            # print("EVAL", len(eval_indices))
 
             # Count the occurences of each class in each leaf node,
             # by first extracting the leaves.
