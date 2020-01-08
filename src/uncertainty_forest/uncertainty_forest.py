@@ -61,7 +61,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             d = X.shape[1]
             self.max_features = int(np.floor(np.sqrt(d)))
 
-        print(self.frac_struct)
+        # print(self.frac_struct)
         self.model = BaggingClassifier(
             DecisionTreeClassifier(  # max_depth = self.max_depth,
                 max_depth=self.max_depth,
