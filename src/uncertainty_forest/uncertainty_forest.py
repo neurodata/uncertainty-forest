@@ -1,5 +1,6 @@
 # RF
-from sklearn.ensemble.forest import _generate_unsampled_indices
+# from sklearn.ensemble.forest import _generate_unsampled_indices
+from sklearn.ensemble._bagging import _generate_indices
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
 
@@ -9,6 +10,7 @@ from sklearn.utils.validation import (
     check_X_y,
     check_array,
     NotFittedError,
+    check_random_state
 )
 from sklearn.utils.multiclass import check_classification_targets
 
@@ -24,10 +26,8 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         min_samples_leaf=1,
         max_features=None,
         n_estimators=300,
-        frac_struct=0.32,
-        frac_est=0.34,
-        frac_eval=0.34,
-        bootstrap=True,
+        frac_struct=0.4,
+        bootstrap=False,
         parallel=True,
         finite_correction=True,
         base=2.0,
@@ -39,8 +39,6 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         self.max_features = max_features
         self.n_estimators = n_estimators
         self.frac_struct = frac_struct
-        self.frac_est = frac_est
-        self.frac_eval = frac_eval
         self.bootstrap = bootstrap
 
         # Model parameters.
@@ -54,16 +52,15 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         check_classification_targets(y)
         self.classes_, y = np.unique(y, return_inverse=True)
 
-        if self.frac_struct + self.frac_est + self.frac_eval != 1.0:
-            raise ValueError("frac_struct + frac_est + frac_eval must equal 1.")
+        # if self.frac_struct + self.frac_est + self.frac_eval != 1.0:
+        #     raise ValueError("frac_struct + frac_est + frac_eval must equal 1.")
 
         if not self.max_features:
             d = X.shape[1]
             self.max_features = int(np.floor(np.sqrt(d)))
 
-        # print(self.frac_struct)
         self.model = BaggingClassifier(
-            DecisionTreeClassifier(  # max_depth = self.max_depth,
+            DecisionTreeClassifier(
                 max_depth=self.max_depth,
                 min_samples_leaf=self.min_samples_leaf,
                 max_features=self.max_features,
@@ -91,16 +88,17 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         def worker(tree):
             # Get indices of estimation set, i.e. those NOT used
             # in learning trees of the forest.
-            unsampled_data = _generate_unsampled_indices(tree.random_state, n)
+            # unsampled_data = _generate_unsampled_indices(tree.random_state, n)
+            sampled_data = _generate_indices(check_random_state(tree.random_state), self.bootstrap, n, int(n * self.frac_struct))
+            unsampled_data = np.delete(np.arange(n), sampled_data)
             np.random.shuffle(unsampled_data)
             num_est = len(unsampled_data) // 2
 
-            # num_est = int(np.ceil(self.frac_est * n))
             estimation_indices = unsampled_data[:num_est]
             eval_indices = unsampled_data[num_est:]
 
             # print("n", n)
-            # print("STRUCT", n - len(unsampled_data))
+            # print("STRUCT", len(np.unique(sampled_data)))
             # print("EST", len(estimation_indices))
             # print("EVAL", len(eval_indices))
 
@@ -306,6 +304,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         def worker(tree):
             # Get indices of estimation set, i.e. those NOT used
             #  for learning trees of the forest.
+            # print(check_random_state(tree.random_state))
             estimation_indices = _generate_unsampled_indices(tree.random_state, n)
 
             # Count the occurences of each class in each leaf node,
