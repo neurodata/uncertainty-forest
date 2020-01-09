@@ -26,7 +26,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         min_samples_leaf=1,
         max_features=None,
         n_estimators=300,
-        frac_struct=0.4,
+        frac_struct=0.32,
         bootstrap=False,
         parallel=True,
         finite_correction=True,
