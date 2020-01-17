@@ -10,7 +10,7 @@ from sklearn.utils.validation import (
     check_X_y,
     check_array,
     NotFittedError,
-    check_random_state
+    check_random_state,
 )
 from sklearn.utils.multiclass import check_classification_targets
 
@@ -89,7 +89,12 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
             # Get indices of estimation set, i.e. those NOT used
             # in learning trees of the forest.
             # unsampled_data = _generate_unsampled_indices(tree.random_state, n)
-            sampled_data = _generate_indices(check_random_state(tree.random_state), self.bootstrap, n, int(n * self.frac_struct))
+            sampled_data = _generate_indices(
+                check_random_state(tree.random_state),
+                self.bootstrap,
+                n,
+                int(n * self.frac_struct),
+            )
             unsampled_data = np.delete(np.arange(n), sampled_data)
             np.random.shuffle(unsampled_data)
             num_est = len(unsampled_data) // 2
