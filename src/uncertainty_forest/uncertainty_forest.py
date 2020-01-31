@@ -1,6 +1,6 @@
 # RF
 # from sklearn.ensemble.forest import _generate_unsampled_indices
-from sklearn.ensemble._bagging import _generate_indices
+# from sklearn.ensemble._bagging import _generate_indices
 from sklearn.ensemble import BaggingClassifier
 from sklearn.tree import DecisionTreeClassifier
 
@@ -10,7 +10,7 @@ from sklearn.utils.validation import (
     check_X_y,
     check_array,
     NotFittedError,
-    check_random_state
+    # check_random_state,
 )
 from sklearn.utils.multiclass import check_classification_targets
 
@@ -26,11 +26,12 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         min_samples_leaf=1,
         max_features=None,
         n_estimators=300,
-        frac_struct=0.54,
+        frac_struct=0.33,
+        frac_est=0.33,
         bootstrap=False,
         parallel=True,
         finite_correction=True,
-        base=2.0,
+        base=np.exp(1),
     ):
 
         # Tree parameters.
@@ -39,6 +40,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         self.max_features = max_features
         self.n_estimators = n_estimators
         self.frac_struct = frac_struct
+        self.frac_est = frac_est
         self.bootstrap = bootstrap
 
         # Model parameters.
@@ -85,17 +87,19 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
         n = X.shape[0]
 
-        def worker(tree):
+        def worker(idx_tree):
+            idx = idx_tree[0]
+            tree = idx_tree[1]
             # Get indices of estimation set, i.e. those NOT used
             # in learning trees of the forest.
-            # unsampled_data = _generate_unsampled_indices(tree.random_state, n)
-            sampled_data = _generate_indices(check_random_state(tree.random_state), self.bootstrap, n, int(n * self.frac_struct))
-            unsampled_data = np.delete(np.arange(n), sampled_data)
-            np.random.shuffle(unsampled_data)
-            num_est = len(unsampled_data) // 2
+            sampled_indices = self.model.estimators_samples_[idx]
+            unsampled_indices = np.delete(np.arange(0, n), sampled_indices)
 
-            estimation_indices = unsampled_data[:num_est]
-            eval_indices = unsampled_data[num_est:]
+            np.random.shuffle(unsampled_indices)
+            num_est = int(self.frac_est * n)
+
+            estimation_indices = unsampled_indices[:num_est]
+            eval_indices = unsampled_indices[num_est:]
 
             # print("n", n)
             # print("STRUCT", len(np.unique(sampled_data)))
@@ -148,7 +152,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
 
         if self.parallel:
             uncertainty_per_tree = Parallel(n_jobs=-2)(
-                delayed(worker)(tree) for tree in self.model
+                delayed(worker)(idx_tree) for idx_tree in enumerate(self.model)
             )
         else:
             uncertainty_per_tree = []
