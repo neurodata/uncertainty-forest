@@ -24,7 +24,7 @@ class UncertaintyForest(BaseEstimator, ClassifierMixin):
         self,
         min_samples_leaf=1,
         max_features=None,
-        n_estimators=1000,
+        n_estimators=1500,
         max_samples=0.4,
         kappa=3,
         base=np.exp(1),
