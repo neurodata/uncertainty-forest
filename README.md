@@ -6,7 +6,7 @@ This repo contains code and demos of estimation procedures for posterior distrib
 - [System Requirements](#system-requirements)
 
 # Overview
-See paper: https://arxiv.org/abs/1907.00325. To reproduce any of the figures, navigate to the corresponding directory, and run the Jupyter notebook.
+To reproduce any of the figures, navigate to the corresponding directory, and run the Jupyter notebook.
 ```
 cd figs/fig1
 jupyter nbconvert --to notebook --inplace --execute figure-1.ipynb --ExecutePreprocessor.timeout=-1
